@@ -14,6 +14,7 @@ class BookingCreate(BaseModel):
     client_email: str | None = None
     scheduled_at: str = Field(..., description="ISO 8601 string for scheduled date and time")
     notes: str | None = None
+    package_id: str | None = None
 
 
 class BookingRead(BaseModel):
@@ -24,7 +25,10 @@ class BookingRead(BaseModel):
     client_id: str
     client_name: str | None = None
     client_phone: str | None = None
+    package_id: str | None = None
     scheduled_at: str
+    duration_minutes: int = 60
+    buffer_minutes: int = 0
     status: BookingStatus
     amount_mxn: int
     gcal_event_id: str | None = None

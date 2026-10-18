@@ -116,6 +116,7 @@ INITIAL_SERVICES = [
         "price_mxn": 600,
         "max_capacity": 1,
         "duration_minutes": 60,
+        "buffer_minutes": 15,
     },
 ]
 
@@ -138,8 +139,8 @@ async def init_schema_and_seed():
             insert_query = """
                 INSERT INTO services (
                     id, slug, name, description, service_type, modality,
-                    default_schedule, price_mxn, max_capacity, duration_minutes, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
+                    default_schedule, price_mxn, max_capacity, duration_minutes, buffer_minutes, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);
             """
             for s in INITIAL_SERVICES:
                 await client.execute(
@@ -155,6 +156,7 @@ async def init_schema_and_seed():
                         s["price_mxn"],
                         s["max_capacity"],
                         s["duration_minutes"],
+                        s.get("buffer_minutes", 0),
                     ],
                 )
             print(f"✅ Successfully seeded {len(INITIAL_SERVICES)} services!")
