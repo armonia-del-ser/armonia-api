@@ -47,8 +47,8 @@ async def create_service(payload: ServiceCreate):
     insert_query = """
         INSERT INTO services (
             id, slug, name, description, service_type, modality,
-            default_schedule, price_mxn, max_capacity, duration_minutes, is_active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            default_schedule, price_mxn, max_capacity, duration_minutes, buffer_minutes, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
     async with get_db() as client:
         try:
@@ -65,6 +65,7 @@ async def create_service(payload: ServiceCreate):
                     payload.price_mxn,
                     payload.max_capacity,
                     payload.duration_minutes,
+                    payload.buffer_minutes,
                     1 if payload.is_active else 0,
                 ],
             )
