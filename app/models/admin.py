@@ -3,6 +3,7 @@ from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BeforeValidator, EmailStr
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 from sqlmodel._compat import SQLModelConfig
 
@@ -42,6 +43,8 @@ class ActionTypeEnum(StrEnum):
     UPDATE_BOOKING_STATUS = "UPDATE_BOOKING_STATUS"
     RELEASE_BOOKING = "RELEASE_BOOKING"
     RETRY_CALENDAR_SYNC = "RETRY_CALENDAR_SYNC"
+    ROSTER_CHECKIN = "ROSTER_CHECKIN"
+    ROSTER_WALK_IN = "ROSTER_WALK_IN"
 
 
 ActionType = Annotated[
@@ -66,7 +69,9 @@ class AdminAuditLog(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
     admin_email: EmailStr = Field(foreign_key="admin_allowlist.email")
     action_type: ActionType
-    entity_type: EntityType
+    entity_type: EntityType = Field(
+        sa_type=SAEnum(EntityTypeEnum, values_callable=lambda x: [e.value for e in x])
+    )
     entity_id: str
     details_json: str | None = None
     created_at: str = Field(default_factory=utc_now_iso)
