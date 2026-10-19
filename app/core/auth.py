@@ -7,13 +7,16 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 import libsql_client
 from fastapi import HTTPException, Request, status
+from sqlmodel import Session
 
-from app.core.config import settings
-from app.db.database import get_db, row_to_dict
+from app.core.config import AuthProvider, settings
+from app.db.database import get_db, get_engine, row_to_dict
+from app.models.admin import RoleEnum
+from app.repositories.admin import mirror_admin_actor
 from app.schemas.auth import AdminPrincipal
 
 SESSION_COOKIE_NAME = "armonia_session"
@@ -123,50 +126,154 @@ async def record_admin_audit(
     )
 
 
-async def require_admin(request: Request) -> AdminPrincipal:
-    """
-    FastAPI dependency enforcing Google OAuth session token OR dev/service key fallback,
-    always verified against an active row in Turso's admin_allowlist table.
-    """
-    candidate_email: str | None = None
+# --- Pluggable authentication strategy (ADR-0006) ---------------------------------------
+#
+# Each adapter inspects only its own credentials and returns:
+#   * AdminPrincipal -> authenticated and authorized
+#   * None           -> its credentials are absent (lets require_admin try a fallback / 401)
+# and raises HTTPException when credentials are present but invalid or unauthorized.
 
-    # 1. Check Authorization: Bearer <session_token> or HttpOnly session cookie
-    auth_header = request.headers.get("Authorization", "")
-    token: str | None = None
-    if auth_header.startswith("Bearer "):
-        token = auth_header.removeprefix("Bearer ").strip()
-    elif SESSION_COOKIE_NAME in request.cookies:
-        token = request.cookies.get(SESSION_COOKIE_NAME)
+# Highest privilege first; exact (case-insensitive) LLDAP group names.
+PROXY_GROUP_ROLES: tuple[tuple[str, RoleEnum], ...] = (
+    ("armonia-owner", RoleEnum.OWNER),
+    ("armonia-admin", RoleEnum.ADMIN),
+    ("armonia-assistant", RoleEnum.ASSISTANT),
+)
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
-    if token:
+
+def resolve_role_from_groups(raw_groups: str | None) -> RoleEnum | None:
+    """Map Authelia's comma-separated `Remote-Groups` to the highest-privilege RoleEnum."""
+    if not raw_groups:
+        return None
+    groups = {g.strip().lower() for g in raw_groups.split(",") if g.strip()}
+    for group_name, role in PROXY_GROUP_ROLES:
+        if group_name in groups:
+            return role
+    return None
+
+
+class AuthAdapter(Protocol):
+    async def authenticate(self, request: Request) -> AdminPrincipal | None: ...
+
+
+async def _require_allowlisted(email: str) -> AdminPrincipal:
+    async with get_db() as client:
+        principal = await get_allowlisted_admin(client, email)
+    if not principal:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"El correo '{email}' no está autorizado en la lista de administradores activos.",
+        )
+    return principal
+
+
+class ProxyHeaderAdapter:
+    """
+    Authelia/LLDAP forward-auth. Identity and role come exclusively from Remote-* headers;
+    reads perform zero database queries. On unsafe methods the principal is mirrored into
+    `admin_allowlist` so audited writes keep FK integrity (ADR-0006).
+
+    SECURITY: only enable when the API is reachable exclusively through the proxy, which must
+    strip client-supplied Remote-* headers.
+    """
+
+    async def authenticate(self, request: Request) -> AdminPrincipal | None:
+        raw_identity = request.headers.get("Remote-Email") or request.headers.get("Remote-User")
+        email = (raw_identity or "").strip().lower()
+        if not email:
+            return None
+
+        role = resolve_role_from_groups(request.headers.get("Remote-Groups"))
+        if role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"El usuario '{email}' no pertenece a ningún grupo armonia-* autorizado.",
+            )
+
+        full_name = (request.headers.get("Remote-Name") or "").strip() or email
+        principal = AdminPrincipal(email=email, full_name=full_name, role=role.value)
+
+        if request.method.upper() not in SAFE_METHODS:
+            with Session(get_engine()) as session:
+                mirror_admin_actor(session, email=email, full_name=full_name, role=role.value)
+        return principal
+
+
+class GoogleOAuthAdapter:
+    """HMAC session token (Bearer header or HttpOnly cookie) verified against the allowlist."""
+
+    async def authenticate(self, request: Request) -> AdminPrincipal | None:
+        auth_header = request.headers.get("Authorization", "")
+        token: str | None = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header.removeprefix("Bearer ").strip()
+        elif SESSION_COOKIE_NAME in request.cookies:
+            token = request.cookies.get(SESSION_COOKIE_NAME)
+        if not token:
+            return None
+
         try:
-            candidate_email = verify_session_token(token)
+            email = verify_session_token(token)
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Sesión inválida o expirada: {exc}",
             ) from exc
-    else:
-        # 2. Check X-Admin-Key + X-Admin-Email fallback for automated tests / CLI
+        return await _require_allowlisted(email)
+
+
+class DevKeyAdapter:
+    """X-Admin-Key (+ optional X-Admin-Email) for tests, CLI, and local dashboard development."""
+
+    async def authenticate(self, request: Request) -> AdminPrincipal | None:
         admin_key = request.headers.get("X-Admin-Key")
-        admin_email_hdr = request.headers.get("X-Admin-Email")
-        if admin_key and hmac.compare_digest(admin_key, settings.admin_api_key):
-            if admin_email_hdr:
-                candidate_email = admin_email_hdr.strip().lower()
-            elif settings.admin_bootstrap_emails:
-                candidate_email = settings.admin_bootstrap_emails[0].strip().lower()
-
-    if not candidate_email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Autenticación de administrador requerida (Google OAuth).",
-        )
-
-    async with get_db() as client:
-        principal = await get_allowlisted_admin(client, candidate_email)
-        if not principal:
+        if not admin_key:
+            return None
+        if not hmac.compare_digest(admin_key, settings.admin_api_key):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"El correo '{candidate_email}' no está autorizado en la lista de administradores activos.",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Clave de administrador inválida.",
             )
-        return principal
+
+        admin_email_hdr = (request.headers.get("X-Admin-Email") or "").strip().lower()
+        email = admin_email_hdr or (
+            settings.admin_bootstrap_emails[0].strip().lower()
+            if settings.admin_bootstrap_emails
+            else ""
+        )
+        if not email:
+            return None
+        return await _require_allowlisted(email)
+
+
+AUTH_ADAPTERS: dict[AuthProvider, AuthAdapter] = {
+    AuthProvider.PROXY_HEADERS: ProxyHeaderAdapter(),
+    AuthProvider.GOOGLE_OAUTH: GoogleOAuthAdapter(),
+    AuthProvider.DEV_KEY: DevKeyAdapter(),
+}
+
+
+def resolve_adapter_chain() -> list[AuthAdapter]:
+    """Configured provider first; dev_key fallback only outside production."""
+    primary = AuthProvider(settings.auth_provider)
+    chain = [AUTH_ADAPTERS[primary]]
+    if primary is not AuthProvider.DEV_KEY and settings.environment != "production":
+        chain.append(AUTH_ADAPTERS[AuthProvider.DEV_KEY])
+    return chain
+
+
+async def require_admin(request: Request) -> AdminPrincipal:
+    """
+    FastAPI dependency yielding a uniform AdminPrincipal regardless of identity provider
+    (`settings.auth_provider`). Routers and services never inspect credentials themselves.
+    """
+    for adapter in resolve_adapter_chain():
+        principal = await adapter.authenticate(request)
+        if principal is not None:
+            return principal
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Autenticación de administrador requerida.",
+    )
