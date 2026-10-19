@@ -17,6 +17,7 @@ dependencies = [
     "time-machine>=3.5.1",
     "uvicorn[standard]>=0.30.0",
     "httpx2>=2.14.0",
+    "tzdata>=2026.5",
 ]
 
 [dependency-groups]
