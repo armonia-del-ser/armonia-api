@@ -7,7 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.db.init_db import init_schema_and_seed
-from app.routers import auth, availability, bookings, health, packages, payments, rosters, services
+from app.routers import (
+    auth,
+    availability,
+    bookings,
+    clients,
+    health,
+    packages,
+    payments,
+    rosters,
+    services,
+)
 
 
 @contextlib.asynccontextmanager
@@ -42,6 +52,7 @@ app.include_router(auth.router)
 app.include_router(services.router)
 app.include_router(availability.router)
 app.include_router(rosters.router)
+app.include_router(clients.router)
 app.include_router(bookings.router)
 app.include_router(packages.router)
 app.include_router(payments.router)
