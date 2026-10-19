@@ -1,12 +1,67 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Generator
 from typing import Any
 
 import libsql_client
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+from sqlmodel import Session, create_engine
 
 from app.core.config import settings
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+    except Exception:
+        # Some drivers / libSQL dialects might not support raw cursor PRAGMA
+        pass
+
+
+def get_engine_url(url: str, auth_token: str | None = None) -> str:
+    """Normalize database URL for SQLAlchemy / SQLModel engine compatibility."""
+    if url.startswith("file:"):
+        db_path = url.removeprefix("file:")
+        return f"sqlite:///{db_path}"
+    if url.startswith("libsql://"):
+        cleaned = url.removeprefix("libsql://")
+        base = f"sqlite+libsql://{cleaned}"
+        if auth_token and "auth_token=" not in base:
+            sep = "&" if "?" in base else "?"
+            return f"{base}{sep}auth_token={auth_token}"
+        return base
+    if url.startswith("sqlite+libsql://"):
+        if auth_token and "auth_token=" not in url:
+            sep = "&" if "?" in url else "?"
+            return f"{url}{sep}auth_token={auth_token}"
+        return url
+    return url
+
+
+_engine_cache: dict[str, Engine] = {}
+
+
+def get_engine() -> Engine:
+    """Retrieve or create a cached SQLModel Engine based on current settings."""
+    engine_url = get_engine_url(settings.database_url, settings.database_auth_token)
+    if engine_url not in _engine_cache:
+        connect_args: dict[str, Any] = {}
+        if engine_url.startswith("sqlite:") and "+libsql" not in engine_url:
+            connect_args["check_same_thread"] = False
+        _engine_cache[engine_url] = create_engine(engine_url, connect_args=connect_args)
+    return _engine_cache[engine_url]
+
+
+def get_session() -> Generator[Session]:
+    """Dependency yielding a SQLModel Session for synchronous and async endpoints."""
+    engine = get_engine()
+    with Session(engine) as session:
+        yield session
 
 
 def get_client() -> libsql_client.Client:

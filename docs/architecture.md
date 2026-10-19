@@ -132,7 +132,7 @@ To resolve consultation overruns, individual appointment availability enforces a
 $$\text{Blocked Interval} = [\text{Start Time}, \text{Start Time} + \text{Duration} + \text{Buffer (15 min)}]$$
 
 When checking availability for a requested slot $[T_{\text{start}}, T_{\text{end}}]$:
-1. Fetch existing `ONE_ON_ONE` bookings where `booking_status = 'RESERVED'`. (Bookings marked `RELEASED` or `CANCELLED` do not block the schedule.)
+1. Fetch existing `INDIVIDUAL` bookings where `booking_status = 'RESERVED'`. (Bookings marked `RELEASED` or `CANCELLED` do not block the schedule.)
 2. Compute overlap:
    $$\text{Overlap} \iff \max(T_{\text{start}}, E_{\text{start}}) < \min(T_{\text{end}} + \text{Buffer}, E_{\text{end}} + E_{\text{buffer}})$$
 3. If overlap is detected, the slot is rejected with `409 Conflict`.

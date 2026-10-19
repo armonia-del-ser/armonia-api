@@ -7,7 +7,7 @@ Accepted (Amended 2026-10-18)
 Discovery feedback from long-term clients revealed chronic 10-to-35-minute delays in therapy sessions caused by emotional consultation overruns and back-to-back scheduling without buffers. Additionally, Jasmin relies on Google Calendar to view her daily schedule on her phone, while `armonia-api` (backed by Turso) must remain the authoritative record of business state.
 
 ## Decision
-1. **Mandatory Post-Session Buffers**: Every individual appointment (`ONE_ON_ONE`) enforces an unbookable 15-to-20-minute buffer interval immediately following the session. A 60-minute consultation blocks 75 minutes on the scheduling engine for any `RESERVED` booking.
+1. **Mandatory Post-Session Buffers**: Every individual appointment (`INDIVIDUAL`) enforces an unbookable 15-to-20-minute buffer interval immediately following the session. A 60-minute consultation blocks 75 minutes on the scheduling engine for any `RESERVED` booking.
 2. **Backend-Owned Truth with Google Calendar Coordination**:
    - `armonia-api` owns the authoritative booking and payment decision in Turso; Google Calendar reflects the schedule:
      - `[PAGO PENDIENTE]` when `booking_status = 'RESERVED'`, `payment_arrangement = 'PREPAID_DEFAULT'`, and `payment_status = 'AWAITING_ACKNOWLEDGMENT'`.
