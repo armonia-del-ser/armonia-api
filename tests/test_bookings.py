@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+from app.core.auth import create_session_token
 
-def test_booking_and_payment_flow(client):
+
+def _admin_headers(email: str = "jasmin@armoniadelser.mx") -> dict[str, str]:
+    token = create_session_token(email)
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_booking_and_payment_acknowledgment_flow(client):
     # 1. Fetch a service
     svc_res = client.get("/services/circulo-cacao-presencial")
     assert svc_res.status_code == 200
@@ -20,32 +27,46 @@ def test_booking_and_payment_flow(client):
     assert b_res.status_code == 201
     booking = b_res.json()
 
-    assert booking["status"] == "PENDING_PAYMENT"
+    # Booking status and payment status are separated
+    assert booking["booking_status"] == "RESERVED"
+    assert booking["payment_arrangement"] == "PREPAID_DEFAULT"
+    assert booking["payment_status"] == "AWAITING_ACKNOWLEDGMENT"
     assert booking["booking_code"].startswith("ADS-")
     assert booking["amount_mxn"] == 350
     assert "wa.me" in booking["whatsapp_redirect_url"]
     assert "ADS-" in booking["whatsapp_redirect_url"]
+    assert "wa.me" in booking["whatsapp_followup_url"]
 
-    # 3. Verify payment (Admin action)
+    # 3. Acknowledge payment (Admin action)
     pay_payload = {
         "booking_id": booking["id"],
         "amount_mxn": 350,
         "payment_method": "SPEI",
         "notes": "Transferencia recibida BBVA",
     }
-    p_res = client.post("/payments/verify", json=pay_payload)
+    p_res = client.post(
+        "/payments/acknowledge",
+        json=pay_payload,
+        headers=_admin_headers("asistente@armoniadelser.mx"),
+    )
     assert p_res.status_code == 201
     payment = p_res.json()
-    assert payment["status"] == "VERIFIED"
+    assert payment["status"] == "ACKNOWLEDGED"
     assert payment["booking_id"] == booking["id"]
+    assert payment["acknowledged_by"] == "asistente@armoniadelser.mx"
 
-    # 4. Confirm booking status updated
-    list_res = client.get("/bookings?status=CONFIRMED")
+    # 4. Confirm booking payment_status updated while booking_status remains RESERVED
+    list_res = client.get(
+        "/bookings?payment_status=ACKNOWLEDGED",
+        headers=_admin_headers(),
+    )
     assert list_res.status_code == 200
-    confirmed_bookings = list_res.json()
-    matching = [b for b in confirmed_bookings if b["id"] == booking["id"]]
+    ack_bookings = list_res.json()
+    matching = [b for b in ack_bookings if b["id"] == booking["id"]]
     assert len(matching) == 1
-    assert matching[0]["status"] == "CONFIRMED"
+    assert matching[0]["booking_status"] == "RESERVED"
+    assert matching[0]["payment_status"] == "ACKNOWLEDGED"
+    assert matching[0]["acknowledged_by"] == "asistente@armoniadelser.mx"
 
 
 def test_one_on_one_buffer_collision(client):
@@ -108,9 +129,10 @@ def test_package_creation_and_redemption(client):
     ).json()
     client_id = initial_b["client_id"]
 
-    # Create a 10-session package with 7 already completed
+    # Create a 10-session package with 7 already completed (Admin action)
     pkg_res = client.post(
         "/packages",
+        headers=_admin_headers(),
         json={
             "client_id": client_id,
             "service_id": svc["id"],
@@ -138,12 +160,14 @@ def test_package_creation_and_redemption(client):
     )
     assert redeem_res.status_code == 201
     redeemed_booking = redeem_res.json()
-    assert redeemed_booking["status"] == "CONFIRMED"
+    assert redeemed_booking["booking_status"] == "RESERVED"
+    assert redeemed_booking["payment_arrangement"] == "PACKAGE_REDEEMED"
+    assert redeemed_booking["payment_status"] == "NOT_APPLICABLE"
     assert redeemed_booking["amount_mxn"] == 0
     assert "8%20de%2010" in redeemed_booking["whatsapp_redirect_url"]
 
     # Verify package counter incremented to 8 completed / 2 remaining
-    pkg_get = client.get(f"/packages/{pkg['id']}")
+    pkg_get = client.get(f"/packages/{pkg['id']}", headers=_admin_headers())
     assert pkg_get.status_code == 200
     assert pkg_get.json()["completed_sessions"] == 8
     assert pkg_get.json()["remaining_sessions"] == 2

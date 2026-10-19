@@ -4,9 +4,11 @@ import uuid
 from datetime import UTC, datetime
 
 import libsql_client
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.auth import record_admin_audit, require_admin
 from app.db.database import get_db, result_to_dicts, row_to_dict
+from app.schemas.auth import AdminPrincipal
 from app.schemas.package import FinancialStatus, PackageCreate, PackageRead, PackageUpdate
 
 router = APIRouter(prefix="/packages", tags=["Packages"])
@@ -34,20 +36,21 @@ def _hydrate_package(r: dict) -> PackageRead:
 
 
 @router.post("", response_model=PackageRead, status_code=status.HTTP_201_CREATED)
-async def create_package(payload: PackageCreate):
+async def create_package(
+    payload: PackageCreate,
+    admin: AdminPrincipal = Depends(require_admin),
+):
     """
     Create a multi-session therapy package for a client (e.g. 5 or 10 sessions).
     Allows tracking remaining credits and financial status.
     """
     async with get_db() as client:
-        # Verify client
         c_res = await client.execute(
             "SELECT id FROM clients WHERE id = ? LIMIT 1;", [payload.client_id]
         )
         if not c_res.rows:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
 
-        # Verify service
         s_res = await client.execute(
             "SELECT id FROM services WHERE id = ? LIMIT 1;", [payload.service_id]
         )
@@ -79,7 +82,19 @@ async def create_package(payload: PackageCreate):
             ],
         )
 
-        # Hydrate with names
+        await record_admin_audit(
+            client,
+            admin_email=admin.email,
+            action_type="CREATE_PACKAGE",
+            entity_type="package",
+            entity_id=package_id,
+            details={
+                "client_id": payload.client_id,
+                "total_sessions": payload.total_sessions,
+                "financial_status": payload.financial_status,
+            },
+        )
+
         fetch_query = """
             SELECT p.*, c.full_name AS client_name, c.phone_whatsapp AS client_phone, s.name AS service_name
             FROM packages p
@@ -95,6 +110,7 @@ async def create_package(payload: PackageCreate):
 async def list_packages(
     client_id: str | None = None,
     financial_status: FinancialStatus | None = Query(None, alias="status"),
+    _admin: AdminPrincipal = Depends(require_admin),
 ):
     """List therapy packages with filter by client or financial status."""
     query = """
@@ -124,7 +140,10 @@ async def list_packages(
 
 
 @router.get("/{package_id}", response_model=PackageRead)
-async def get_package(package_id: str):
+async def get_package(
+    package_id: str,
+    _admin: AdminPrincipal = Depends(require_admin),
+):
     """Retrieve details and remaining balance for a specific package."""
     query = """
         SELECT p.*, c.full_name AS client_name, c.phone_whatsapp AS client_phone, s.name AS service_name
@@ -141,11 +160,14 @@ async def get_package(package_id: str):
 
 
 @router.patch("/{package_id}", response_model=PackageRead)
-async def update_package(package_id: str, payload: PackageUpdate):
+async def update_package(
+    package_id: str,
+    payload: PackageUpdate,
+    admin: AdminPrincipal = Depends(require_admin),
+):
     """Update package notes, sessions count, or financial status."""
     now = datetime.now(UTC).isoformat()
     async with get_db() as client:
-        # Check exists
         res = await client.execute("SELECT * FROM packages WHERE id = ? LIMIT 1;", [package_id])
         if not res.rows:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Package not found")
@@ -172,6 +194,15 @@ async def update_package(package_id: str, payload: PackageUpdate):
         params.append(package_id)
         update_query = f"UPDATE packages SET {', '.join(updates)} WHERE id = ?;"
         await client.execute(update_query, params)
+
+        await record_admin_audit(
+            client,
+            admin_email=admin.email,
+            action_type="UPDATE_PACKAGE",
+            entity_type="package",
+            entity_id=package_id,
+            details=payload.model_dump(exclude_none=True),
+        )
 
         fetch_query = """
             SELECT p.*, c.full_name AS client_name, c.phone_whatsapp AS client_phone, s.name AS service_name

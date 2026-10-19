@@ -5,14 +5,18 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 PaymentMethod = Literal["SPEI", "OXXO", "CASH"]
-PaymentStatus = Literal["PENDING", "VERIFIED", "REJECTED"]
+PaymentStatus = Literal["ACKNOWLEDGED", "REVERSED"]
 
 
-class PaymentVerificationRequest(BaseModel):
+class PaymentAcknowledgmentRequest(BaseModel):
     booking_id: str
     amount_mxn: int = Field(..., ge=0)
     payment_method: PaymentMethod = "SPEI"
     notes: str | None = None
+
+
+# Alias for backward compatibility
+PaymentVerificationRequest = PaymentAcknowledgmentRequest
 
 
 class PaymentRead(BaseModel):
@@ -21,6 +25,7 @@ class PaymentRead(BaseModel):
     amount_mxn: int
     payment_method: PaymentMethod
     status: PaymentStatus
-    verified_at: str | None = None
+    acknowledged_by: str
+    acknowledged_at: str
     notes: str | None = None
     created_at: str
