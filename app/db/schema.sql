@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS services (
     slug TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
-    service_type TEXT NOT NULL CHECK (service_type IN ('GROUP', 'ONE_ON_ONE')),
+    service_type TEXT NOT NULL CHECK (service_type IN ('GROUP', 'INDIVIDUAL')),
     modality TEXT NOT NULL CHECK (modality IN ('PRESENCIAL', 'ONLINE')),
     default_schedule TEXT,
     price_mxn INTEGER NOT NULL DEFAULT 0,

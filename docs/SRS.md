@@ -43,7 +43,7 @@ The primary goal of the first deliverable is a tight, reliable backend sitting b
 ## 3. Functional Requirements
 
 ### 3.1 Service Catalog Management (`FR-CAT`)
-- **FR-CAT-1:** The system shall support two distinct service types: `GROUP` (fixed recurring weekly schedule, attendee capacity ~10-25) and `ONE_ON_ONE` (dynamic appointment slots).
+- **FR-CAT-1:** The system shall support two distinct service types: `GROUP` (fixed recurring weekly schedule, attendee capacity ~10-25) and `INDIVIDUAL` (dynamic appointment slots).
 - **FR-CAT-2:** Each service shall define name, slug, description, modality (`PRESENCIAL` or `ONLINE`), price in MXN, duration in minutes, mandatory buffer in minutes, and active status.
 
 ### 3.2 Orthogonal Booking & Payment State Model (`FR-RSV`)

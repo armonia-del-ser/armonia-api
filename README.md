@@ -47,7 +47,7 @@ Built with **FastAPI** and **Turso (libSQL)** to serve as the operational source
 | Entity | Purpose |
 | :--- | :--- |
 | `admin_allowlist` | Authorized administrator emails (`OWNER`, `ASSISTANT`, `ADMIN`), active status, and last login timestamp. |
-| `services` | Catalog of offerings (Círculos de Cacao, Meditaciones, Constelaciones, Psicoterapia), format (`ONLINE` / `PRESENCIAL`), type (`GROUP` / `ONE_ON_ONE`), capacity, mandatory buffer, and price in MXN. |
+| `services` | Catalog of offerings (Círculos de Cacao, Meditaciones, Constelaciones, Psicoterapia), format (`ONLINE` / `PRESENCIAL`), type (`GROUP` / `INDIVIDUAL`), capacity, mandatory buffer, and price in MXN. |
 | `clients` | Client directory (name, phone / WhatsApp, email, notes). |
 | `bookings` | Appointments tracking `booking_status`, `payment_arrangement`, `payment_status`, folio (`ADS-XXXX`), exception/release/acknowledgment audit metadata, and Google Calendar sync health. |
 | `payments` | Audit record of SPEI/OXXO/cash payment acknowledgment (`acknowledged_by`, `acknowledged_at`, notes). |

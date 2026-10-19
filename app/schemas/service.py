@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class ServiceBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=150)
     description: str | None = None
-    service_type: Literal["GROUP", "ONE_ON_ONE"]
+    service_type: Literal["GROUP", "INDIVIDUAL"]
     modality: Literal["PRESENCIAL", "ONLINE"]
     default_schedule: str | None = None
     price_mxn: int = Field(..., ge=0)
@@ -25,7 +25,7 @@ class ServiceCreate(ServiceBase):
 class ServiceUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    service_type: Literal["GROUP", "ONE_ON_ONE"] | None = None
+    service_type: Literal["GROUP", "INDIVIDUAL"] | None = None
     modality: Literal["PRESENCIAL", "ONLINE"] | None = None
     default_schedule: str | None = None
     price_mxn: int | None = Field(default=None, ge=0)

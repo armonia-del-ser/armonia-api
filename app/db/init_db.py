@@ -111,7 +111,7 @@ INITIAL_SERVICES = [
         "slug": "atencion-psicologica-individual",
         "name": "Atención Psicológica Individual",
         "description": "Sesión individual de psicoterapia personalizada (presencial u online).",
-        "service_type": "ONE_ON_ONE",
+        "service_type": "INDIVIDUAL",
         "modality": "PRESENCIAL",
         "default_schedule": "Con cita previa",
         "price_mxn": 600,

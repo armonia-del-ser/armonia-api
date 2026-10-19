@@ -258,15 +258,15 @@ async def create_booking(payload: BookingCreate):
         buffer_minutes = int(service.get("buffer_minutes", 0))
         max_capacity = int(service.get("max_capacity", 1))
 
-        # 2. Collision & Buffer Check for ONE_ON_ONE services, or Capacity check for GROUP
+        # 2. Collision & Buffer Check for INDIVIDUAL services, or Capacity check for GROUP
         new_start = parse_iso_datetime(payload.scheduled_at)
-        if service["service_type"] == "ONE_ON_ONE":
+        if service["service_type"] == "INDIVIDUAL":
             active_res = await client.execute(
                 """
                 SELECT b.scheduled_at, b.duration_minutes, b.buffer_minutes
                 FROM bookings b
                 JOIN services s ON b.service_id = s.id
-                WHERE b.booking_status = 'RESERVED' AND s.service_type = 'ONE_ON_ONE';
+                WHERE b.booking_status = 'RESERVED' AND s.service_type = 'INDIVIDUAL';
                 """
             )
             active_bookings = result_to_dicts(active_res)
