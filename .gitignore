@@ -19,7 +19,8 @@ htmlcov/
 *.sqlite
 *.sqlite3
 
-# IDE / Editor
+# IDE / Editor / Nix direnv
 .vscode/
 .idea/
 *.swp
+.direnv/
