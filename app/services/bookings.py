@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.config import settings
+from app.schemas.booking import BookingRead
 from app.services.timestamps import parse_iso_datetime
 
 
@@ -127,3 +128,85 @@ def build_assistant_followup_link(
     if len(clean_phone) == 10:
         clean_phone = f"52{clean_phone}"
     return f"https://wa.me/{clean_phone}?text={encoded}"
+
+
+def hydrate_booking_row(
+    row: dict[str, Any],
+    *,
+    now: datetime | None = None,
+    window_hours: int | None = None,
+    package_info: str | None = None,
+) -> BookingRead:
+    ref_now = now or datetime.now(UTC)
+    threshold = (
+        window_hours if window_hours is not None else settings.payment_followup_threshold_hours
+    )
+    hours_until = calculate_hours_until(str(row["scheduled_at"]), ref_now)
+    needs_followup = evaluate_payment_followup(
+        booking_status=str(row["booking_status"]),
+        payment_status=str(row["payment_status"]),
+        payment_arrangement=str(row["payment_arrangement"]),
+        hours_until=hours_until,
+        threshold_hours=threshold,
+    )
+
+    service_name = str(row.get("service_name") or "")
+    client_name = str(row.get("client_name") or "")
+    client_phone = str(row.get("client_phone") or "")
+    folio = str(row["booking_code"])
+    amount_mxn = int(row["amount_mxn"])
+
+    wa_client_url = build_whatsapp_link(
+        service_name=service_name,
+        scheduled_at=str(row["scheduled_at"]),
+        folio=folio,
+        amount_mxn=amount_mxn,
+        package_info=package_info,
+    )
+    wa_followup_url = (
+        build_assistant_followup_link(
+            client_name=client_name,
+            client_phone=client_phone,
+            service_name=service_name,
+            scheduled_at=str(row["scheduled_at"]),
+            folio=folio,
+            amount_mxn=amount_mxn,
+        )
+        if client_phone
+        else None
+    )
+
+    return BookingRead(
+        id=str(row["id"]),
+        booking_code=folio,
+        service_id=str(row["service_id"]),
+        service_name=service_name or None,
+        client_id=str(row["client_id"]),
+        client_name=client_name or None,
+        client_phone=client_phone or None,
+        package_id=row.get("package_id"),
+        scheduled_at=str(row["scheduled_at"]),
+        duration_minutes=int(row.get("duration_minutes", 60)),
+        buffer_minutes=int(row.get("buffer_minutes", 0)),
+        booking_status=row["booking_status"],
+        payment_arrangement=row["payment_arrangement"],
+        payment_status=row["payment_status"],
+        amount_mxn=amount_mxn,
+        needs_payment_followup=needs_followup,
+        hours_until_session=hours_until,
+        exception_authorized_by=row.get("exception_authorized_by"),
+        exception_authorized_at=row.get("exception_authorized_at"),
+        exception_notes=row.get("exception_notes"),
+        released_by=row.get("released_by"),
+        released_at=row.get("released_at"),
+        release_reason=row.get("release_reason"),
+        acknowledged_by=row.get("acknowledged_by"),
+        acknowledged_at=row.get("acknowledged_at"),
+        gcal_event_id=row.get("gcal_event_id"),
+        gcal_sync_status=row.get("gcal_sync_status", "NOT_CONFIGURED"),
+        gcal_sync_error=row.get("gcal_sync_error"),
+        gcal_synced_at=row.get("gcal_synced_at"),
+        created_at=str(row["created_at"]),
+        whatsapp_redirect_url=wa_client_url,
+        whatsapp_followup_url=wa_followup_url,
+    )

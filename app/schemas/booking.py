@@ -39,6 +39,22 @@ class BookingStatusUpdateRequest(BaseModel):
     notes: str | None = None
 
 
+class BookingRescheduleRequest(BaseModel):
+    new_scheduled_at: str = Field(
+        ..., description="ISO 8601 string for new scheduled date and time"
+    )
+    notes: str | None = Field(default=None, description="Optional notes or reason for rescheduling")
+
+
+class BookingCompleteRequest(BaseModel):
+    package_id: str | None = Field(
+        default=None, description="Optional package to link or redeem for this booking"
+    )
+    notes: str | None = Field(
+        default=None, description="Optional clinical/consultation completion notes"
+    )
+
+
 class BookingRead(BaseModel):
     id: str
     booking_code: str
