@@ -1,27 +1,33 @@
-# ADR 0002: Anti-Ghosting Payment Verification Workflow via WhatsApp Deep Links
+# ADR 0002: Separated Booking Lifecycle, Delayed-Payment Exceptions, and 48-Hour Follow-Up Visibility
 
 ## Status
-Accepted
+Accepted (Amended 2026-10-18 per Operational Clarification with Jasmin's Assistant)
 
 ## Context
-A major operational pain point for Jazmín is financial default: clients allowed to pay *after* their therapy session often cease responding to WhatsApp messages ("ghosting").
-However, implementing a traditional payment gateway like Stripe or Conekta is not viable because:
-1. Credit card penetration is low among local wellness clients in Mexico; most prefer cash or SPEI bank transfers.
-2. Payment gateway transaction fees (3.6% + $3 MXN + VAT) erode low-ticket therapy margins.
-3. Complex checkout forms create drop-offs on mobile devices.
+Initially, we assumed that all bookings should require prepayment within a strict 2-hour automatic expiration window (`PENDING_PAYMENT` $\rightarrow$ `EXPIRED`). However, operational clarification with Jasmin's assistant revealed three critical realities:
+1. **Prepayment is the default, not an absolute rule**: While most sessions require payment before the appointment, Jasmin occasionally allows trusted clients to pay later. Those sessions must proceed while keeping the outstanding payment explicitly traceable as a delayed payment (`DELAYED_ALLOWED`) rather than silently marking it paid.
+2. **Releasing a slot is always a deliberate human decision**: Automatically expiring a booking after 2 hours conflicts with how Jasmin and her assistant operate. Instead, the dashboard must surface unacknowledged bookings as the session approaches (48 hours prior) so the assistant can manually follow up on WhatsApp and decide whether to acknowledge payment, authorize a delayed-payment exception, or deliberately release the slot (`RELEASED`).
+3. **Booking status and payment status are distinct facts**: Coupling schedule status (`RESERVED`, `RELEASED`, `COMPLETED`) and financial state (`AWAITING_ACKNOWLEDGMENT`, `ACKNOWLEDGED`) into a single column makes delayed-payment exceptions and post-session receivables impossible to represent cleanly.
 
 ## Decision
-We implement a **Verification Loop** using unique folios (`ADS-XXXX`) and WhatsApp deep links (`wa.me`):
-1. Client reservation creates a booking in state `PENDING_PAYMENT` with an automatic 2-hour expiration window.
-2. The UI immediately renders Jazmín's SPEI coordinates (Bank, CLABE, Beneficiary) and opens a WhatsApp conversation with a pre-filled message including the folio (`ADS-XXXX`).
-3. Jazmín receives the transfer proof screenshot in WhatsApp, verifies the deposit in her banking app, and confirms the booking with a single tap in `armonia-dashboard`.
-4. Only upon this acknowledgment does the booking transition to `CONFIRMED` and lock into Google Calendar.
+We separate booking and payment state into three orthogonal fields on `bookings`, supported by an explicit 48-hour follow-up queue and audit trail:
+1. **Three Orthogonal State Axes**:
+   - `booking_status`: `RESERVED`, `RELEASED`, `CANCELLED`, `COMPLETED`, `NO_SHOW`
+   - `payment_arrangement`: `PREPAID_DEFAULT`, `DELAYED_ALLOWED`, `PACKAGE_REDEEMED`
+   - `payment_status`: `AWAITING_ACKNOWLEDGMENT`, `ACKNOWLEDGED`, `NOT_APPLICABLE`
+2. **48-Hour Follow-Up Queue (Derived Query Condition)**:
+   - At 48 hours before `scheduled_at` (configurable via `PAYMENT_FOLLOWUP_THRESHOLD_HOURS`), any `RESERVED` booking with `payment_status = 'AWAITING_ACKNOWLEDGMENT'` surfaces in `GET /bookings/follow-up-queue`.
+   - No background worker mutates or expires the booking; the threshold controls operational visibility.
+3. **Audited Administrative Actions**:
+   - **Acknowledge Payment**: Verifies SPEI/cash receipt and sets `payment_status = 'ACKNOWLEDGED'`, recording `acknowledged_by` and `acknowledged_at`.
+   - **Authorize Delayed Payment**: Sets `payment_arrangement = 'DELAYED_ALLOWED'` while keeping `payment_status = 'AWAITING_ACKNOWLEDGMENT'`, recording `exception_authorized_by`, `exception_authorized_at`, and `exception_notes`.
+   - **Release Slot**: Sets `booking_status = 'RELEASED'` (and `payment_status = 'NOT_APPLICABLE'` if no session occurred), recording `released_by`, `released_at`, and `release_reason`, immediately freeing the slot for another client.
 
 ## Consequences
 ### Positive
-- **Zero Payment Default**: Eliminates the "pay after session" trap without charging gateway transaction fees.
-- **Cultural Alignment**: "Apartar lugar con comprobante" is standard and culturally respected in Mexican wellness communities.
-- **Low Friction**: Leverages the tool clients already use continuously (WhatsApp).
+- **Operational Honesty**: Delayed-payment exceptions remain visible as receivables until actually paid and acknowledged.
+- **Human-in-the-Loop Control**: Neither Jasmin nor her assistant loses a booking to an unexpected timer, while the 48-hour queue ensures no unpaid slot slips through unnoticed.
+- **Zero Background Infrastructure**: Deriving the 48-hour queue on read requires zero cron jobs or always-on workers, preserving the $0 Cloud Run scale-to-zero profile.
 
 ### Negative / Trade-offs
-- Requires Jazmín (or her assistant) to manually cross-check deposits in her bank app before clicking "Confirmar".
+- Requires Jasmin's assistant to review the 48-hour follow-up queue and click "Liberar espacio" (`RELEASED`) when a client declines to complete payment.

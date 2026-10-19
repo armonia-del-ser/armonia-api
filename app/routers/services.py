@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.auth import record_admin_audit, require_admin
 from app.db.database import get_db, result_to_dicts, row_to_dict
+from app.schemas.auth import AdminPrincipal
 from app.schemas.service import ServiceCreate, ServiceRead
 
 router = APIRouter(prefix="/services", tags=["Services"])
@@ -21,10 +23,9 @@ async def list_services(active_only: bool = True):
     async with get_db() as client:
         res = await client.execute(query)
         rows = result_to_dicts(res)
-        # convert integer is_active to bool
         for r in rows:
             r["is_active"] = bool(r.get("is_active", 1))
-        return rows
+        return [ServiceRead(**r) for r in rows]
 
 
 @router.get("/{service_id_or_slug}", response_model=ServiceRead)
@@ -37,11 +38,14 @@ async def get_service(service_id_or_slug: str):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service not found")
         item = row_to_dict(res, res.rows[0])
         item["is_active"] = bool(item.get("is_active", 1))
-        return item
+        return ServiceRead(**item)
 
 
 @router.post("", response_model=ServiceRead, status_code=status.HTTP_201_CREATED)
-async def create_service(payload: ServiceCreate):
+async def create_service(
+    payload: ServiceCreate,
+    admin: AdminPrincipal = Depends(require_admin),
+):
     """Add a new service to the catalog (Admin action)."""
     service_id = str(uuid.uuid4())
     insert_query = """
@@ -75,8 +79,17 @@ async def create_service(payload: ServiceCreate):
                 detail=f"Failed to create service: {e}",
             ) from e
 
+        await record_admin_audit(
+            client,
+            admin_email=admin.email,
+            action_type="CREATE_SERVICE",
+            entity_type="service",
+            entity_id=service_id,
+            details={"slug": payload.slug, "name": payload.name},
+        )
+
         fetch_query = "SELECT * FROM services WHERE id = ? LIMIT 1;"
         res = await client.execute(fetch_query, [service_id])
         item = row_to_dict(res, res.rows[0])
         item["is_active"] = bool(item.get("is_active", 1))
-        return item
+        return ServiceRead(**item)

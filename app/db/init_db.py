@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from pathlib import Path
 
+from app.core.config import settings
 from app.db.database import get_db
 
 SCHEMA_FILE = Path(__file__).parent / "schema.sql"
@@ -122,7 +123,7 @@ INITIAL_SERVICES = [
 
 
 async def init_schema_and_seed():
-    """Execute DDL statements and seed initial flyer services."""
+    """Execute DDL statements and seed initial services and bootstrap administrators."""
     async with get_db() as client:
         with open(SCHEMA_FILE, encoding="utf-8") as f:
             ddl = f.read()
@@ -130,6 +131,21 @@ async def init_schema_and_seed():
         statements = [stmt.strip() for stmt in ddl.split(";") if stmt.strip()]
         for stmt in statements:
             await client.execute(stmt)
+
+        # Seed bootstrap administrators idempotently
+        for idx, raw_email in enumerate(settings.admin_bootstrap_emails):
+            email = raw_email.strip().lower()
+            if not email:
+                continue
+            role = "OWNER" if idx == 0 else "ASSISTANT"
+            full_name = settings.therapist_name if idx == 0 else "Asistente Armonía del Ser"
+            await client.execute(
+                """
+                INSERT OR IGNORE INTO admin_allowlist (email, full_name, role, is_active)
+                VALUES (?, ?, ?, 1);
+                """,
+                [email, full_name, role],
+            )
 
         # Check if services already seeded
         res = await client.execute("SELECT COUNT(*) AS count FROM services;")
