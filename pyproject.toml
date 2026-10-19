@@ -45,3 +45,8 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
 
+[tool.mutmut]
+source_paths = ["app/services/"]
+also_copy = ["app"]
+pytest_add_cli_args_test_selection = ["tests/unit/services/"]
+

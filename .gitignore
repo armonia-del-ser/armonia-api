@@ -13,6 +13,7 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+mutants/
 
 # Local databases
 *.db
